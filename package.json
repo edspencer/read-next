@@ -8,7 +8,8 @@
     "build": "tsc && rollup -c",
     "build:watch": "concurrently \"tsc --watch\" \"rollup -c --watch\"",
     "ci:version": "changeset version",
-    "ci:publish": "tsc && rollup -c && changeset publish"
+    "ci:publish": "tsc && rollup -c && changeset publish",
+    "check-exports": "attw --pack ."
   },
   "keywords": [
     "ai",
@@ -25,6 +26,7 @@
   "license": "MIT",
   "devDependencies": {
     "@ai-sdk/openai": "^0.0.56",
+    "@arethetypeswrong/cli": "^0.16.2",
     "@changesets/cli": "^2.27.8",
     "@langchain/openai": "^0.2.10",
     "@rollup/plugin-commonjs": "^26.0.1",
@@ -40,12 +42,9 @@
     "typescript": "^5.5.4"
   },
   "dependencies": {
-    "@datastax/astra-db-ts": "^1.4.1",
     "@langchain/community": "^0.2.32",
     "@langchain/core": "^0.2.31",
-    "ai": "^3.3.27",
     "faiss-node": "^0.5.1",
-    "hnswlib-node": "^3.0.0",
     "langchain": "^0.2.18"
   }
 }
