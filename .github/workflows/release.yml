@@ -35,6 +35,8 @@ jobs:
         run: pnpm install
 
       - name: Run tests
+        env:
+          OPENAI_API_KEY: nope
         run: npx jest
 
   release:
