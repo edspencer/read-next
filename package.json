@@ -1,0 +1,51 @@
+{
+  "name": "read-next",
+  "version": "0.0.1",
+  "description": "",
+  "main": "dist/index.js",
+  "scripts": {
+    "test": "npx jest",
+    "build": "tsc && rollup -c",
+    "build:watch": "concurrently \"tsc --watch\" \"rollup -c --watch\"",
+    "ci:version": "changeset version",
+    "ci:publish": "tsc && rollup -c && changeset publish"
+  },
+  "keywords": [
+    "ai",
+    "react"
+  ],
+  "files": [
+    "/dist"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/edspencer/read-next.git"
+  },
+  "author": "Ed Spencer",
+  "license": "MIT",
+  "devDependencies": {
+    "@ai-sdk/openai": "^0.0.56",
+    "@changesets/cli": "^2.27.8",
+    "@langchain/openai": "^0.2.10",
+    "@rollup/plugin-commonjs": "^26.0.1",
+    "@types/jest": "^29.5.12",
+    "@types/node": "^22.5.4",
+    "concurrently": "^8.2.2",
+    "jest": "^29.7.0",
+    "rollup": "^4.21.2",
+    "rollup-plugin-peer-deps-external": "^2.2.4",
+    "rollup-plugin-typescript2": "^0.36.0",
+    "ts-jest": "^29.2.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.4"
+  },
+  "dependencies": {
+    "@datastax/astra-db-ts": "^1.4.1",
+    "@langchain/community": "^0.2.32",
+    "@langchain/core": "^0.2.31",
+    "ai": "^3.3.27",
+    "faiss-node": "^0.5.1",
+    "hnswlib-node": "^3.0.0",
+    "langchain": "^0.2.18"
+  }
+}

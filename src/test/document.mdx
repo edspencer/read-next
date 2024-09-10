@@ -1,0 +1,184 @@
+**tl;dr:** a Backups API exists for OPNSense. [opnsense-autobackup](https://github.com/edspencer/opnsense-autobackup) uses it to make daily backups for you.
+
+A few months ago I set up OPNSense on my home network, to act as a firewall and router. So far it's been great, with a ton of benefits over the eero mesh system I was replacing - static DHCP assignments, pretty local host names via Unbound DNS, greatly increased visibility and monitoring possibilities, and of course manifold security options.
+
+However, it's also become a victim of its own success. It's now so central to the network that if it were to fail, most of the network would go down with it. The firewall rules, VLAN configurations, DNS setup, DHCP etc are all very useful and very endemic - if they go away most of my network services go down: internet access, home automation, NAS, cameras, more.
+
+OPNSense lets you download a backup via the UI; sometimes I remember to do that before making a sketchy change, but I have once wiped out the box without a recent backup, and ended up spending several hours getting things back up again. That was before really embracing things like local DNS and static DHCP assignments, which I now have a bunch of automation and configuration reliant on.
+
+OPNSense has a built-in way to have backups be [automatically created and uploaded to a Google Drive folder](https://docs.opnsense.org/manual/how-tos/cloud_backup.html). Per the docs it does this on a daily basis, uploading a new backup to Google Drive if something changed. If you want to use Google Drive for your backup storage, this is probably the right option for you, but if you want to customize how this works - either the schedule on which backups are made, or where they're sent, there are ways to do that too.
+
+<Figure
+  src="/images/posts/opnsense-google-drive-backups.png"
+  alt="OPNSense Google Drive backups configuration"
+  caption="Use the built-in Google Drive backup feature if that makes more sense for you"
+/>
+
+## Using the OPNSense API to create backups
+
+OPNSense provides a simple API that allows you to download the current configuration as an XML file. It gives you the same XML file that you get when you click the "Download configuration" button manually in the OPNSense UI. It's worth downloading it manually once and just skimming through the file in your editor - it's nicely organized and interesting to peruse.
+
+Once you've done that, though, you'll probably want to automate the process so you don't have to remember. That's fairly straightforward:
+
+### Setting up OPNSense for API backups
+
+We need to set up a way to access the OPNSense backups API, ideally not using our root user - or indeed any user with more access privileges than necessary to create backups. To accomplish this we'll set up a new Group called `backups` - create the Group via the OPNSense UI, then edit it to assign the `Diagnostics: Configuration History` privilege. This grants access to the /api/core/backup/ APIs.
+
+![OPNSense Assign Backups privilege](/images/posts/opnsense-grant-backups-api.png)
+
+Then, create a new User called `backup`, and add it to the new `backups` Group. Your Group configuration will end up looking something like this:
+
+![OPNSense Add Backups Group](/images/posts/opnsense-add-backups-group.png)
+
+Now that you have a new `backup` User, which has access only to configuration/backups APIs, you need to generate an API Key and Secret. Do this in the UI (your actual key will be a long random string):
+
+![OPNSense Create User Key & Secret](/images/posts/opnsense-user-create-key.png)
+
+Creating an API Key for the user will automatically initiate a download in your browser of a text file containing 2 lines - the key itself and a secret. This is the one and only time you will be able to gain access to the secret, so save it somewhere. An encrypted version of it will be kept in OPNSense, but you'll never be able to get hold of the non-encrypted version again if you lose it. Here's what the text file will look like:
+
+```shell
+key=SUPER+TOP+SECRET+KEY
+secret=alongstringofrandomlettersandnumbers
+```
+
+## Downloading a backup via the API
+
+Let's test out our new user with a curl command to download the current configuration. The `-k` tells curl to disregard the fact that OPNSense is likely to respond with an SSL certificate curl doesn't recognize (for your home network you are unlikely to care too much about this). The `-u` sends our new user's API Key and Secret using HTTP Basic auth:
+
+```shell
+$ curl -k -u "SUPER+TOP+SECRET+KEY":"alongstringofrandomlettersandnumbers" \
+ https://firewall.local/api/core/backup/download/this > backup
+
+$ ls -lh
+total 120
+-rw-r--r--  1 ed  staff    56K May 24 09:33 backup
+```
+
+Cool - we have a 56kb file called backup, which ends up looking something like this:
+
+```xml
+<?xml version="1.0"?>
+<opnsense>
+  <theme>opnsense</theme>
+  <sysctl>
+    <item>
+      <descr>Increase UFS read-ahead speeds to match the state of hard drives and NCQ.</descr>
+      <tunable>vfs.read_max</tunable>
+      <value>default</value>
+    </item>
+    <item>
+      <descr>Set the ephemeral port range to be lower.</descr>
+      <tunable>net.inet.ip.portrange.first</tunable>
+      <value>default</value>
+    </item>
+    <item>
+      <descr>Drop packets to closed TCP ports without returning a RST</descr>
+      <tunable>net.inet.tcp.blackhole</tunable>
+      <value>default</value>
+
+... 1000 more lines of this ...
+
+</opnsense>
+```
+
+In my case I have a couple of thousand lines of this stuff - you may have more or less. Obviously, we wouldn't usually want to do this via a curl command, especially not one that resulted in our access credentials finding their way into our command line history, so let's make this a little bit better.
+
+## Automating it all
+
+There are a variety of options here, on 2 main axes:
+
+- Where to send your backups
+- How often to make a backup
+
+In my case I want to put the file into a git repository, along with other network configuration files. OPNSense does have a [built-in way to back up files to a git repo](https://docs.opnsense.org/manual/git-backup.html#concept), but I want to be able to put more than just OPNSense config files in this repo, so I went for a more extensible approach.
+
+Daily backups seem reasonable here, as well as the option to create them ad-hoc. Ideally one would just run a single script and a timestamped backup would appear in a backups repo. As I recently set up TrueNAS scale on my local network, this seemed a great place to host a schedulable Docker image, so that's what I did.
+
+The Docker image in question handles downloading the backups and pushing them to a GitHub repository. This approach allows us to easily schedule and manage our backups using TrueNAS SCALE, or anywhere else on the network you can run a docker container. It's published as [edspencer/opnsense-autobackup](https://hub.docker.com/repository/docker/edspencer/opnsense-autobackup/general) on Docker Hub, and the source code is up at https://github.com/edspencer/opnsense-autobackup.
+
+<Figure
+  href="https://github.com/edspencer/opnsense-autobackup"
+  src="/images/posts/opnsense-autobackup-logo.png"
+  width={300}
+  alt="OPNSense autobackup logo"
+  caption="Behold the generative AI logo. Don't look too closely at the letters"
+/>
+
+### Setting Up the Docker Container on TrueNAS SCALE
+
+Here’s a quick walkthrough on how to set up the Docker container on TrueNAS SCALE and configure it to automate your OPNSense backups.
+
+<Figure
+  src="/images/posts/truenas-opnsense-autobackup.png"
+  alt="OPNSense Auto Backup docker image running on TrueNAS Scale"
+  caption="We can afford the 172kb of memory used to run opnsense-autobackup"
+/>
+
+#### Prerequisites
+
+1. **Docker Installed on TrueNAS SCALE**: Ensure that Docker is installed and running on your TrueNAS SCALE system.
+2. **GitHub Repository**: Create a GitHub repository to store your backups.
+3. **GitHub Personal Access Token**: Generate a GitHub personal access token with repo read/write permissions to allow the Docker container to push to your repository.
+
+#### Generate a GitHub Personal Access Token
+
+1. Go to [GitHub Settings](https://github.com/settings/tokens).
+2. Click on **Generate new token**.
+3. Give your token a descriptive name and give it read and write permissions for your new backups repository
+4. Click **Generate token**.
+5. Copy the token and save it securely. You will need it to configure the Docker container.
+
+#### Set Up the Docker Container on TrueNAS SCALE
+
+Navigate to the Apps screen on the TrueNAS Scale instance, then click `Discover Apps` followed by `Custom App`. Give your app a name and set it to use the _edspencer/opnsense-autobackup_ docker image, using the `latest` tag.
+
+You'll need to provide the following environment variables, so configure those now in the _Container Environment Variables_ section:
+
+| Name          | Value                                            |
+| ------------- | ------------------------------------------------ |
+| API_KEY       | `your_opnsense_api_key`                          |
+| API_SECRET    | `your_opnsense_api_secret`                       |
+| HOSTNAME      | `firewall.local`                                 |
+| GIT_REPO_URL  | `https://github.com/your_username/your_repo.git` |
+| GIT_USERNAME  | `your_git_username`                              |
+| GIT_EMAIL     | `your_git_email`                                 |
+| GIT_TOKEN     | `your_git_token`                                 |
+| CRON_SCHEDULE | `0 0 * * *`                                      |
+
+Set the `CRON_SCHEDULE` to anything you like - this one will make it run every day at midnight UTC. Click `Install` to finish, and you should see the app up and running. So long as you have created your GitHub repo and PAT, you should already see your first backup files in your repo. Depending on what you set for your `CRON_SCHEDULE`, you'll see new files automatically appearing as long as the image is running.
+
+<Figure
+  src="/images/posts/opnsense-backups-in-github.png"
+  alt="OPNSense backups in the GitHub repo"
+  caption="A screenshot of my own OPNSense backups repo, with backups populating automatically"
+/>
+
+And you should see some Docker log output like this:
+
+```shell
+2024-05-25 09:58:05.362503-07:00CRON_SCHEDULE provided: 0 * * * *. Setting up cron job...
+2024-05-25 09:58:07.707058-07:00Starting cron service...
+2024-05-25 09:58:07.707137-07:00Starting backup process...
+2024-05-25 09:58:07.708367-07:00Cloning the repository...
+2024-05-25 09:58:07.710068-07:00Cloning into '/repo'...
+2024-05-25 09:58:08.339297-07:00Downloading backup...
+2024-05-25 09:58:08.343397-07:00% Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+2024-05-25 09:58:08.343461-07:00Dload  Upload   Total   Spent    Left  Speed
+2024-05-25 09:58:08.379857-07:000     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+100 57117  100 57117    0     0  1521k      0 --:--:-- --:--:-- --:--:-- 1549k
+2024-05-25 09:58:08.381179-07:00Saving backup as latest.xml and opnsense_2024-05-25_16-58.xml...
+2024-05-25 09:58:08.391197-07:00[main 7922900] Backups generated 2024-05-25_16-58
+2024-05-25 09:58:08.391785-07:001 file changed, 1650 insertions(+)
+2024-05-25 09:58:08.391814-07:00create mode 100644 opnsense_2024-05-25_16-58.xml
+2024-05-25 09:58:09.087436-07:00To https://github.com/edspencer/opnsense-backups.git
+2024-05-25 09:58:09.087476-07:00bce0d8a..7922900  main -> main
+2024-05-25 09:58:09.090436-07:00Backup process completed.
+```
+
+### Conclusions and Improvements
+
+I feel much safer knowing that OPNSense is now being continually backed up. There are a bunch of other heavily-configured devices on my network that I would like centralized daily backups for - Home Assistant and my managed switch configs being the obvious ones. More to come on those.
+
+Obviously you could run this anywhere, not just in TrueNAS, but I like the simplicity, observability and resource reuse of using the TrueNAS installation I already set up. So far that's working out well, though it use some monitoring and alerting in case it stops working.
+
+For a detailed guide on setting up the Docker container and automating your backups, visit the [GitHub repository](https://github.com/edspencer/opnsense-autobackup). The [script that actually gets run](https://github.com/edspencer/opnsense-autobackup/blob/main/entrypoint.sh) is super simple, and easily adaptable to your own needs.
