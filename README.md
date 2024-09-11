@@ -1,6 +1,6 @@
-# ReadNext - AI-driven "Read Next" suggestions for your content
+# ReadNext - AI-driven "Read Next" for your content
 
-**ReadNext** is a tool that uses AI to create "Read Next" suggestions for your articles. It gives you a simple way to index all your content and automatically generate recommendations for what your audience should read next.
+**ReadNext** is a tool that uses AI to create "Read Next" suggestions for your articles. It gives you a simple way to index all your content and automatically generate recommendations for what your audience should read next based on what they're reading right now.
 
 ### Key Features:
 
@@ -8,6 +8,10 @@
 - **Caches results and recommendations**: Saves your time and money by not repeating work
 - **Use an LLM of your choice**: for both summarization and embedding (sensible defaults provided)
 - **Built on top of [Langchain](https://js.langchain.com/v0.2/docs/introduction)**: mature foundation with plenty of room for customization
+
+It's not a UI component itself, but powers "What to Read Next" UI components like this:
+
+![Example UI using Read Next](/docs/read-next-ui-example.png)
 
 ## Installation
 
