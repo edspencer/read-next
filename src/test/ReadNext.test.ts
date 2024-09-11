@@ -61,6 +61,12 @@ describe("ReadNext", () => {
     it.todo("supplies a default FAISS vectorStore with the supplied embedding model");
     it.todo("supplies a default FAISS vectorStore with a default embedding model");
     it.todo("accepts a custom vectorStore");
+
+    it.todo("accepts a custom summarization prompt");
+    it.todo("supplies a default summarization prompt if none is provided");
+
+    it.todo("accepts a custom logger");
+    it.todo("supplies a default logger if none is provided");
   });
 
   describe("indexing documents", () => {

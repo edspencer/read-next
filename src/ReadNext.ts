@@ -9,36 +9,22 @@ import { StringOutputParser } from "@langchain/core/output_parsers";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { Runnable } from "@langchain/core/runnables";
 
-import { RecordManager } from "@langchain/core/indexing";
 import winston from "winston";
-
-export type DocumentID = string | number;
-
-export type Embedding = number[];
-
-export type SummaryEmbedding = {
-  _id: DocumentID;
-  sourceDocumentId?: DocumentID;
-  $vector: Embedding;
-  content: string;
-};
-
 interface ReadNextArgs {
   vectorStore: VectorStore;
   summaryModel: BaseChatModel;
   summarizationPrompt?: string;
-  cacheSummaries?: boolean;
   cacheDir?: string;
+  logger?: winston.Logger;
 }
 
 interface CreateReadNextArgs {
   vectorStore?: VectorStore;
   embeddingsModel?: Embeddings;
-  recordManager?: RecordManager;
   summaryModel?: BaseChatModel;
   summarizationPrompt?: string;
-  cacheSummaries?: boolean;
   cacheDir?: string;
+  logger?: winston.Logger;
 }
 
 interface Summarize {
@@ -76,7 +62,6 @@ export class ReadNext {
   summaryParser: StringOutputParser;
   summaryChain: Runnable;
 
-  cacheSummaries: boolean;
   cacheDir: string;
 
   contentHasher: ContentHasher;
@@ -84,18 +69,17 @@ export class ReadNext {
   logger: winston.Logger;
 
   static async create(config: CreateReadNextArgs = {}): Promise<ReadNext> {
-    let { cacheSummaries = true, cacheDir, vectorStore, recordManager, summaryModel } = config;
+    let { logger, cacheDir, vectorStore, summarizationPrompt, summaryModel } = config;
 
     if (!config.embeddingsModel) {
       config.embeddingsModel = new OpenAIEmbeddings({ model: "text-embedding-ada-002" });
     }
 
-    if (!vectorStore) {
-      if (cacheSummaries && cacheDir) {
-        const faissPath = path.join(cacheDir, "faiss.index");
-        if (fs.existsSync(faissPath)) {
-          vectorStore = await FaissStore.load(cacheDir, config.embeddingsModel);
-        }
+    if (!vectorStore && cacheDir) {
+      const faissPath = path.join(cacheDir, "faiss.index");
+
+      if (fs.existsSync(faissPath)) {
+        vectorStore = await FaissStore.load(cacheDir, config.embeddingsModel);
       }
     }
 
@@ -111,6 +95,8 @@ export class ReadNext {
       vectorStore,
       summaryModel,
       cacheDir,
+      summarizationPrompt,
+      logger,
     };
 
     return new ReadNext(readNextConfig);
@@ -119,41 +105,26 @@ export class ReadNext {
   constructor({
     vectorStore,
     summaryModel,
-    cacheSummaries = false,
     summarizationPrompt = defaultSummarizationPrompt,
     cacheDir,
+    logger,
   }: ReadNextArgs) {
     this.vectorStore = vectorStore;
     this.summaryModel = summaryModel;
     this.summarizationPrompt = summarizationPrompt;
     this.embeddingsModel = this.vectorStore.embeddings;
 
-    this.cacheSummaries = cacheSummaries;
-
     this.summaryParser = new StringOutputParser();
     this.summaryChain = this.summaryModel.pipe(this.summaryParser);
 
     this.cacheDir = cacheDir || os.tmpdir();
 
-    this.logger = winston.createLogger({
-      level: "info",
-      transports: [
-        //
-        // - Write all logs with importance level of `error` or less to `error.log`
-        // - Write all logs with importance level of `info` or less to `combined.log`
-        //
-        new winston.transports.File({
-          format: winston.format.simple(),
-          filename: path.join(this.cacheDir, "readnext-error.log"),
-          level: "error",
-        }),
-        new winston.transports.File({
-          format: winston.format.simple(),
-          filename: path.join(this.cacheDir, "readnext.log"),
-        }),
-        new winston.transports.Console({ format: winston.format.cli() }),
-      ],
-    });
+    this.logger =
+      logger ||
+      winston.createLogger({
+        level: "info",
+        transports: [new winston.transports.Console({ format: winston.format.cli() })],
+      });
 
     this.contentHasher = new ContentHasher({ cacheDir: this.cacheDir, logger: this.logger });
   }
