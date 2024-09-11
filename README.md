@@ -45,7 +45,7 @@ async function generateRecommendations() {
       },
       {
         id: "my-latest-article",
-        pageContent: "Article content goes here - can be very long, it will be summarized first",
+        pageContent: "Article content goes here - can be long, it will be summarized first",
       },
       // ...as many documents as you like here
     ],
@@ -61,7 +61,7 @@ async function generateRecommendations() {
 }
 ```
 
-You'll get back an object like this:
+You'll get back an object like this, with related articles ranked by score (lower is better):
 
 ```json
 {
