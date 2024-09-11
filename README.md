@@ -56,8 +56,30 @@ async function generateRecommendations() {
     sourceDocument: {
       id: "my-latest-article",
     },
-    limit: 5,
+    limit: 3,
   });
+}
+```
+
+You'll get back an object like this:
+
+```json
+{
+  "id": "my-latest-article",
+  "related": [
+    {
+      "sourceDocumentId": "a-wonderful-article",
+      "score": 0.590001106262207
+    },
+    {
+      "sourceDocumentId": "a-less-related-article",
+      "score": 0.7498645782470703
+    },
+    {
+      "sourceDocumentId": "a-really-unrelated-article",
+      "score": 1.3464351892471313
+    }
+  ]
 }
 ```
 
