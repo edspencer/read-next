@@ -1,8 +1,10 @@
-import { ReadNext } from "../ReadNext";
+import { ReadNext, defaultSummarizationPrompt } from "../ReadNext";
 import type { SaveableVectorStore, VectorStore } from "@langchain/core/vectorstores";
+import { FaissStore } from "@langchain/community/vectorstores/faiss";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 
 import fs from "fs";
+import winston from "winston";
 
 import { ChatOpenAI, OpenAIEmbeddings } from "@langchain/openai";
 import path from "path";
@@ -58,15 +60,51 @@ describe("ReadNext", () => {
       expect(typeof unconfigured.cacheDir).toBe("string");
     });
 
-    it.todo("supplies a default FAISS vectorStore with the supplied embedding model");
-    it.todo("supplies a default FAISS vectorStore with a default embedding model");
-    it.todo("accepts a custom vectorStore");
+    it("supplies a default FAISS vectorStore with the supplied embedding model", async () => {
+      const instance = await ReadNext.create({
+        embeddingsModel: new FakeEmbeddings({}),
+      });
+      expect(instance.vectorStore).toBeInstanceOf(FaissStore);
+    });
 
-    it.todo("accepts a custom summarization prompt");
-    it.todo("supplies a default summarization prompt if none is provided");
+    it("supplies a default FAISS vectorStore with a default embedding model", async () => {
+      const instance = await ReadNext.create();
+      expect(instance.vectorStore).toBeInstanceOf(FaissStore);
+    });
 
-    it.todo("accepts a custom logger");
-    it.todo("supplies a default logger if none is provided");
+    it("accepts a custom vectorStore", async () => {
+      const customVectorStore = new SaveableFakeVectorStore(new FakeEmbeddings({}));
+      const instance = await ReadNext.create({
+        vectorStore: customVectorStore,
+      });
+      expect(instance.vectorStore).toBe(customVectorStore);
+    });
+
+    it("accepts a custom summarization prompt", async () => {
+      const customPrompt = "Custom summarization prompt";
+      const instance = await ReadNext.create({
+        summarizationPrompt: customPrompt,
+      });
+      expect(instance.summarizationPrompt).toBe(customPrompt);
+    });
+
+    it("supplies a default summarization prompt if none is provided", async () => {
+      const instance = await ReadNext.create();
+      expect(instance.summarizationPrompt).toBe(defaultSummarizationPrompt);
+    });
+
+    it("accepts a custom logger", async () => {
+      const customLogger = winston.createLogger();
+      const instance = await ReadNext.create({
+        logger: customLogger,
+      });
+      expect(instance.logger).toBe(customLogger);
+    });
+
+    it("supplies a default logger if none is provided", async () => {
+      const instance = await ReadNext.create();
+      expect(instance.logger).toBeInstanceOf(winston.Logger);
+    });
   });
 
   describe("indexing documents", () => {

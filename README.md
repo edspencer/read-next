@@ -28,7 +28,7 @@ If you want to use customized summary and/or embedding models, you'll likely nee
 Generating recommendations using ReadNext is straightforward:
 
 ```tsx
-import ReadNext from "read-next";
+import { ReadNext } from "read-next";
 
 async function generateRecommendations() {
   //create the ReadNext instance

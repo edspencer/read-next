@@ -10,6 +10,7 @@ import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { Runnable } from "@langchain/core/runnables";
 
 import winston from "winston";
+
 interface ReadNextArgs {
   vectorStore: VectorStore;
   summaryModel: BaseChatModel;
@@ -38,7 +39,7 @@ interface Suggest {
   ignore?: Document[];
 }
 
-const defaultSummarizationPrompt = `Here is an article for you to summarize.
+export const defaultSummarizationPrompt = `Here is an article for you to summarize.
   The purpose of the summarization is to drive recommendations for what article somebody should read next,
   based on the article they are currently reading. The summarization should be as lengthy as necessary to
   capture the full essence of the article. It is not intended to be a short summary, but more of a condensing of the article.
@@ -53,6 +54,23 @@ import { FaissStore } from "@langchain/community/vectorstores/faiss";
 
 import { createHash } from "crypto";
 
+/**
+ * The `ReadNext` class provides functionality for summarizing documents, creating embeddings,
+ * and storing them in a vector store for similarity searches. It also supports caching summaries
+ * and embeddings to improve performance.
+ *
+ * @class
+ * @property {BaseChatModel} summaryModel - The model used for generating summaries.
+ * @property {EmbeddingsInterface} embeddingsModel - The model used for generating embeddings.
+ * @property {string} summarizationPrompt - The prompt used for summarization.
+ * @property {VectorStore} vectorStore - The store used for storing vector embeddings.
+ * @property {StringOutputParser} summaryParser - The parser used for parsing summary outputs.
+ * @property {Runnable} summaryChain - The chain of operations for summarization.
+ * @property {string} cacheDir - The directory used for caching summaries and embeddings.
+ * @property {ContentHasher} contentHasher - The hasher used for content hashing.
+ * @property {winston.Logger} logger - The logger used for logging information.
+ *
+ */
 export class ReadNext {
   summaryModel: BaseChatModel;
   embeddingsModel: EmbeddingsInterface;
@@ -68,6 +86,19 @@ export class ReadNext {
 
   logger: winston.Logger;
 
+  /**
+   * Creates an instance of ReadNext with the provided configuration.
+   *
+   * @param {CreateReadNextArgs} [config={}] - The configuration object for creating ReadNext.
+   * @param {Logger} [config.logger] - Optional logger for logging purposes.
+   * @param {string} [config.cacheDir] - Optional directory path for caching.
+   * @param {VectorStore} [config.vectorStore] - Optional vector store instance.
+   * @param {string} [config.summarizationPrompt] - Optional prompt for summarization.
+   * @param {Model} [config.summaryModel] - Optional model for generating summaries.
+   * @param {Model} [config.embeddingsModel] - Optional model for generating embeddings.
+   *
+   * @returns {Promise<ReadNext>} A promise that resolves to an instance of ReadNext.
+   */
   static async create(config: CreateReadNextArgs = {}): Promise<ReadNext> {
     let { logger, cacheDir, vectorStore, summarizationPrompt, summaryModel } = config;
 
@@ -102,6 +133,15 @@ export class ReadNext {
     return new ReadNext(readNextConfig);
   }
 
+  /**
+   * Constructs an instance of the ReadNext class.
+   *
+   * @param vectorStore - The vector store used for embeddings.
+   * @param summaryModel - The model used for generating summaries.
+   * @param summarizationPrompt - The prompt used for summarization, defaults to `defaultSummarizationPrompt`.
+   * @param cacheDir - The directory used for caching, defaults to the system's temporary directory.
+   * @param logger - The logger instance, defaults to a Winston logger with console transport.
+   */
   constructor({
     vectorStore,
     summaryModel,
@@ -129,7 +169,16 @@ export class ReadNext {
     this.contentHasher = new ContentHasher({ cacheDir: this.cacheDir, logger: this.logger });
   }
 
-  async index({ sourceDocuments, force = false }: { sourceDocuments: DocumentInput[]; force?: boolean }) {
+  /**
+   * Indexes the provided source documents by generating summaries, adding them to a vector store,
+   * and saving the state to a cache.
+   *
+   * @param {Object} params - The parameters for the index function.
+   * @param {DocumentInput[]} params.sourceDocuments - An array of source documents to be indexed.
+   *
+   * @returns {Promise<Document[]>} A promise that resolves to an array of summary documents.
+   */
+  async index({ sourceDocuments }: { sourceDocuments: DocumentInput[] }) {
     const summaryDocuments: Document[] = [];
     let embeddingsAdded = 0;
 
@@ -179,6 +228,16 @@ export class ReadNext {
     return summaryDocuments;
   }
 
+  /**
+   * Generates a summary for the given source document. If the document has an ID and a fresh hash,
+   * it attempts to retrieve a cached summary from the filesystem. If no cached summary is found,
+   * it generates a new summary and caches it if the document has an ID. The content hash is updated
+   * and saved if it is not fresh.
+   *
+   * @param {Object} param0 - The input object containing the source document.
+   * @param {DocumentInput} param0.sourceDocument - The document for which to generate a summary.
+   * @returns {Promise<string>} - A promise that resolves to the summary of the document.
+   */
   async getSummaryFor({ sourceDocument }: { sourceDocument: DocumentInput }) {
     let summary: string | undefined = undefined;
     const hasId = sourceDocument.id;
@@ -219,10 +278,8 @@ export class ReadNext {
   }
 
   /**
-   * Summarizes a source document, optionally saving the summary to a directory of your choice.
-   * Creates an embedding for the summary and saves it to the vector store.
-   * Returns the Summary
-   * @returns
+   * Summarizes a source document, saving it to the cacheDir.
+   * @returns the summary of the source document
    */
   async summarize({ sourceDocument }: Summarize): Promise<string> {
     const { pageContent } = sourceDocument;
@@ -236,6 +293,14 @@ export class ReadNext {
     return summary;
   }
 
+  /**
+   * Suggests related documents based on the provided source document.
+   *
+   * @param {Object} params - The parameters for the suggestion.
+   * @param {Object} params.sourceDocument - The source document to base suggestions on.
+   * @param {number} [params.limit=10] - The maximum number of suggestions to return.
+   * @returns {Promise<Suggestions>} A promise that resolves to an object containing the source document ID and an array of related document suggestions with their scores.
+   */
   async suggest({ sourceDocument, limit = 10 }: Suggest): Promise<Suggestions> {
     this.logger.info(`Getting suggestion for ${sourceDocument.id}`);
     const summary = await this.getSummaryFor({ sourceDocument });
@@ -259,21 +324,57 @@ export class ReadNext {
   }
 }
 
+/**
+ * Represents a document that is related to another document.
+ *
+ * @typedef {Object} RelatedDocument
+ * @property {string} sourceDocumentId - The unique identifier of the source document.
+ * @property {number} score - The relevance score of the related document.
+ */
 type RelatedDocument = {
   sourceDocumentId: string;
   score: number;
 };
 
+/**
+ * Represents a collection of suggestions.
+ *
+ * @typedef {Object} Suggestions
+ * @property {string} [id] - Optional identifier for the suggestion.
+ * @property {RelatedDocument[]} related - Array of related documents.
+ */
 type Suggestions = {
   id?: string;
   related: RelatedDocument[];
 };
 
+/**
+ * The `ContentHasher` class is responsible for managing content hashes for documents.
+ * It provides methods to check if a document's content is fresh, set new content hashes,
+ * and load/save these hashes from/to a cache file.
+ */
 class ContentHasher {
+  /**
+   * A map that stores document IDs and their corresponding content hashes.
+   */
   records: Map<string, string>;
+
+  /**
+   * The path to the cache file where content hashes are stored.
+   */
   cacheFile: string;
+
+  /**
+   * A logger instance for logging messages and errors.
+   */
   logger: winston.Logger;
 
+  /**
+   * Constructs a new `ContentHasher` instance.
+   *
+   * @param cacheDir - The directory where the cache file is stored.
+   * @param logger - A logger instance for logging messages and errors.
+   */
   constructor({ cacheDir, logger }: { cacheDir: string; logger: winston.Logger }) {
     this.records = new Map();
     this.logger = logger;
@@ -282,6 +383,12 @@ class ContentHasher {
     this.load();
   }
 
+  /**
+   * Checks if the content of a given document is fresh by comparing its hash with the stored hash.
+   *
+   * @param document - The document to check.
+   * @returns `true` if the document's content is fresh, `false` otherwise.
+   */
   hasFresh(document: DocumentInput): boolean {
     const { pageContent, id } = document;
 
@@ -295,6 +402,11 @@ class ContentHasher {
     }
   }
 
+  /**
+   * Sets the content hash for a given document.
+   *
+   * @param document - The document to set the hash for.
+   */
   set(document: DocumentInput) {
     const { pageContent, id } = document;
 
@@ -307,6 +419,11 @@ class ContentHasher {
     }
   }
 
+  /**
+   * Loads the content hashes from the cache file.
+   *
+   * @returns `true` if the content hashes were successfully loaded, `false` otherwise.
+   */
   load(): boolean {
     try {
       if (fs.existsSync(this.cacheFile)) {
@@ -323,6 +440,9 @@ class ContentHasher {
     return true;
   }
 
+  /**
+   * Saves the current content hashes to the cache file.
+   */
   save(): void {
     fs.writeFileSync(this.cacheFile, JSON.stringify(Object.fromEntries(this.records), null, 2));
   }
