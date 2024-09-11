@@ -45,6 +45,7 @@
     "@langchain/community": "^0.2.32",
     "@langchain/core": "^0.2.31",
     "faiss-node": "^0.5.1",
-    "langchain": "^0.2.18"
+    "langchain": "^0.2.18",
+    "winston": "^3.14.2"
   }
 }

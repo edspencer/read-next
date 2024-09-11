@@ -114,7 +114,10 @@ describe("ReadNext", () => {
               sourceDocumentId: sourceDocument.id,
             }),
           }),
-        ])
+        ]),
+        expect.objectContaining({
+          ids: expect.arrayContaining([sourceDocument.id]),
+        })
       );
     });
 

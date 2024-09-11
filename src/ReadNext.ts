@@ -1,5 +1,5 @@
 import type { Document, DocumentInput } from "@langchain/core/documents";
-import type { SaveableVectorStore, VectorStore } from "@langchain/core/vectorstores";
+import type { VectorStore } from "@langchain/core/vectorstores";
 import type { Embeddings, EmbeddingsInterface } from "@langchain/core/embeddings";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 
@@ -10,6 +10,7 @@ import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { Runnable } from "@langchain/core/runnables";
 
 import { RecordManager } from "@langchain/core/indexing";
+import winston from "winston";
 
 export type DocumentID = string | number;
 
@@ -80,6 +81,8 @@ export class ReadNext {
 
   contentHasher: ContentHasher;
 
+  logger: winston.Logger;
+
   static async create(config: CreateReadNextArgs = {}): Promise<ReadNext> {
     let { cacheSummaries = true, cacheDir, vectorStore, recordManager, summaryModel } = config;
 
@@ -131,7 +134,28 @@ export class ReadNext {
     this.summaryChain = this.summaryModel.pipe(this.summaryParser);
 
     this.cacheDir = cacheDir || os.tmpdir();
-    this.contentHasher = new ContentHasher({ cacheDir: this.cacheDir });
+
+    this.logger = winston.createLogger({
+      level: "info",
+      transports: [
+        //
+        // - Write all logs with importance level of `error` or less to `error.log`
+        // - Write all logs with importance level of `info` or less to `combined.log`
+        //
+        new winston.transports.File({
+          format: winston.format.simple(),
+          filename: path.join(this.cacheDir, "readnext-error.log"),
+          level: "error",
+        }),
+        new winston.transports.File({
+          format: winston.format.simple(),
+          filename: path.join(this.cacheDir, "readnext.log"),
+        }),
+        new winston.transports.Console({ format: winston.format.cli() }),
+      ],
+    });
+
+    this.contentHasher = new ContentHasher({ cacheDir: this.cacheDir, logger: this.logger });
   }
 
   async index({ sourceDocuments, force = false }: { sourceDocuments: DocumentInput[]; force?: boolean }) {
@@ -139,8 +163,6 @@ export class ReadNext {
     let embeddingsAdded = 0;
 
     for (const sourceDocument of sourceDocuments) {
-      console.log("generating summary for", sourceDocument.id);
-
       //create the summary
       const summary = await this.getSummaryFor({ sourceDocument });
 
@@ -153,11 +175,16 @@ export class ReadNext {
 
       summaryDocuments.push(summaryDocument);
 
-      console.log("generated embedding");
-      await this.vectorStore.addDocuments([summaryDocument]);
+      this.logger.info(`Adding ${sourceDocument.id} to the vector store`);
+      try {
+        await this.vectorStore.delete({ ids: [sourceDocument.id] });
+      } catch (e) {
+        // ignore errors here as we don't care if the document doesn't already exist
+      }
+      await this.vectorStore.addDocuments([summaryDocument], { ids: [sourceDocument.id] });
       embeddingsAdded += 1;
 
-      console.log("embedding added");
+      this.logger.info(`${sourceDocument.id} added to the vector store`);
 
       //save to the cache
       this.contentHasher.set(sourceDocument);
@@ -203,6 +230,8 @@ export class ReadNext {
 
     if (summary === undefined) {
       summary = await this.summarize({ sourceDocument });
+    } else {
+      this.logger.info(`Using cached summary for ${sourceDocument.id}`);
     }
 
     if (hasId) {
@@ -229,15 +258,15 @@ export class ReadNext {
 
     const messages = [new SystemMessage(this.summarizationPrompt), new HumanMessage(pageContent)];
 
-    console.log("Summarizing");
+    this.logger.info(`Generating summary for ${sourceDocument.id}`);
     const summary = await this.summaryChain.invoke(messages);
-    console.log("Summarization completed");
+    this.logger.info("Summarization completed");
 
     return summary;
   }
 
   async suggest({ sourceDocument, limit = 10 }: Suggest): Promise<Suggestions> {
-    console.log("Getting suggestion for " + sourceDocument.id);
+    this.logger.info(`Getting suggestion for ${sourceDocument.id}`);
     const summary = await this.getSummaryFor({ sourceDocument });
     const results = await this.vectorStore.similaritySearchWithScore(summary, limit + 1);
 
@@ -272,9 +301,11 @@ type Suggestions = {
 class ContentHasher {
   records: Map<string, string>;
   cacheFile: string;
+  logger: winston.Logger;
 
-  constructor({ cacheDir }: { cacheDir: string }) {
+  constructor({ cacheDir, logger }: { cacheDir: string; logger: winston.Logger }) {
     this.records = new Map();
+    this.logger = logger;
 
     this.cacheFile = path.join(cacheDir, "contentHashes.json");
     this.load();
@@ -288,7 +319,7 @@ class ContentHasher {
     if (id) {
       return this.records.get(id) === contentSha;
     } else {
-      console.log("No id supplied, so caching will not work");
+      this.logger.warn("No id supplied, so caching will not work");
       return false;
     }
   }
@@ -301,7 +332,7 @@ class ContentHasher {
     if (id) {
       this.records.set(id, contentSha);
     } else {
-      console.log("No id supplied, so caching will not work");
+      this.logger.warn("No id supplied, so caching will not work");
     }
   }
 
@@ -312,8 +343,8 @@ class ContentHasher {
         this.records = new Map(Object.entries(records));
       }
     } catch (e) {
-      console.error("Error loading content hashes");
-      console.error(e);
+      this.logger.error("Error loading content hashes");
+      this.logger.error(e);
 
       return false;
     }
