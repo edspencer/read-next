@@ -315,3 +315,11 @@ The output of `suggest` looks like this (actual output taken from the content fo
 ```
 
 The scores may be useful in deciding whether or not to keep all of the recommendations. The lower the score the better. Your articles probably already have metadata like tags, publication status and other things - if so that's a good place to store the recommendations too. Check out [this blog post](https://edspencer.net/2024/8/28/using-markdown-with-nextjs) on how I manage metadata for my blog with MDX and frontmatter.
+
+## Troubleshooting
+
+If you come across this error:
+
+`` Error: Vector store not initialised yet. Try calling `fromTexts`, `fromDocuments` or `fromIndex` first. ``
+
+You are probably calling `suggest` before you have `index`ed anything. Make sure you have actually indexed some content first.
