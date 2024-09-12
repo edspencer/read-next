@@ -1,5 +1,17 @@
 # read-next
 
+## 0.2.0
+
+### Minor Changes
+
+- 84ee67b: colorful cache miss/hit and expensive operation hints in log output
+
+### Patch Changes
+
+- 84ee67b: Refactor ContentHasher and logger out, add tests
+- 84ee67b: Better handling for forward slashes in ids
+- 84ee67b: create a subdir inside os.tmpdir if no cacheDir given
+
 ## 0.1.1
 
 ### Patch Changes
