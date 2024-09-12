@@ -142,6 +142,30 @@ const readNext = await ReadNext.create({
 
 Make sure you set up whatever environment variables your model of choice expects to be present (`GOOGLE_APPLICATION_CREDENTIALS` in the case above).
 
+### Summarization Prompt
+
+ReadNext has a reasonable default summarization prompt that it sends to the summaryModel LLM to summarize your content, but you can often get a better outcome by using something more specific to your use case.
+
+For example, the [RSC Examples project](https://github.com/edspencer/rsc-examples) is a collection of React Server Component examples - basically a bunch of .mdx files with associated code snippets. The examples are quite similar to articles but it's helpful to give the LLM a little more specific context of what it is summarizing. Here's how RSC Examples does that ([see the actual code here](https://github.com/edspencer/rsc-examples/blob/main/src/script/related.ts)).
+
+```tsx
+const readNext = await ReadNext.create({
+  cacheDir: path.join(__dirname, "read-next"),
+
+  //this will be sent to the LLM just before your sourceDocument's pageContent
+  summarizationPrompt: `
+    The following content is a markdown document about an example of how to use React Server
+    Components. It contains sections of prose explaining what the example is about, may contain
+    links to other resources, and almost certainly contains code snippets.
+
+    Your goal is to generate a summary of the content that can be used to suggest related examples.
+    The summary will be used to create embeddings for a vector search. When you come across code
+    samples, please summarize the code in natural language.
+
+    Do not reply with anything except your summary of the example.`,
+});
+```
+
 ### Cache directory
 
 If you don't supply a `cacheDir` argument, ReadNext will save its temporary files into the system tmpdir. Invoking LLMs and vector databases can be expensive in both time and money though, so it's always a good idea to supply this:
