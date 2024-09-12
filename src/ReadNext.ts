@@ -1,7 +1,12 @@
+import fs from "fs";
+import path from "path";
+import os from "os";
+
 import type { Document, DocumentInput } from "@langchain/core/documents";
 import type { VectorStore } from "@langchain/core/vectorstores";
 import type { Embeddings, EmbeddingsInterface } from "@langchain/core/embeddings";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import { FaissStore } from "@langchain/community/vectorstores/faiss";
 
 import { OpenAIEmbeddings, ChatOpenAI } from "@langchain/openai";
 import { StringOutputParser } from "@langchain/core/output_parsers";
@@ -10,6 +15,9 @@ import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { Runnable } from "@langchain/core/runnables";
 
 import winston from "winston";
+
+import { readNextLogger } from "./logger";
+import ContentHasher from "./ContentHasher";
 
 interface ReadNextArgs {
   vectorStore: VectorStore;
@@ -46,13 +54,6 @@ export const defaultSummarizationPrompt = `Here is an article for you to summari
   All of the summarizations will be passed through an embedding model, with the embeddings used to rank the articles.
 
   Please do not reply with any text other than the summary.`;
-
-import fs from "fs";
-import path from "path";
-import os from "os";
-import { FaissStore } from "@langchain/community/vectorstores/faiss";
-
-import { createHash } from "crypto";
 
 /**
  * The `ReadNext` class provides functionality for summarizing documents, creating embeddings,
@@ -157,14 +158,11 @@ export class ReadNext {
     this.summaryParser = new StringOutputParser();
     this.summaryChain = this.summaryModel.pipe(this.summaryParser);
 
-    this.cacheDir = cacheDir || os.tmpdir();
+    this.cacheDir = cacheDir || path.join(os.tmpdir(), "read-next-cache");
 
-    this.logger =
-      logger ||
-      winston.createLogger({
-        level: "info",
-        transports: [new winston.transports.Console({ format: winston.format.cli() })],
-      });
+    fs.mkdirSync(this.cacheDir, { recursive: true });
+
+    this.logger = logger || readNextLogger;
 
     this.contentHasher = new ContentHasher({ cacheDir: this.cacheDir, logger: this.logger });
   }
@@ -195,7 +193,7 @@ export class ReadNext {
 
       summaryDocuments.push(summaryDocument);
 
-      this.logger.info(`Adding ${sourceDocument.id} to the vector store`);
+      this.logger.info(`Adding ${sourceDocument.id} to the vector store`, { id: sourceDocument.id });
       try {
         await this.vectorStore.delete({ ids: [sourceDocument.id] });
       } catch (e) {
@@ -204,7 +202,7 @@ export class ReadNext {
       await this.vectorStore.addDocuments([summaryDocument], { ids: [sourceDocument.id] });
       embeddingsAdded += 1;
 
-      this.logger.info(`${sourceDocument.id} added to the vector store`);
+      this.logger.info(`${sourceDocument.id} added to the vector store`, { id: sourceDocument.id });
 
       //save to the cache
       this.contentHasher.set(sourceDocument);
@@ -259,12 +257,17 @@ export class ReadNext {
     }
 
     if (summary === undefined) {
+      this.logger.info(`No summary found for ${sourceDocument.id}, will generate a new one`, {
+        cache: "miss",
+        id: sourceDocument.id,
+      });
       summary = await this.summarize({ sourceDocument });
     } else {
-      this.logger.info(`Using cached summary for ${sourceDocument.id}`);
+      this.logger.info(`Using cached summary for ${sourceDocument.id}`, { cache: "hit", id: sourceDocument.id });
     }
 
     if (hasId) {
+      fs.mkdirSync(path.dirname(summaryFileName), { recursive: true });
       fs.writeFileSync(summaryFileName, summary);
     }
 
@@ -286,9 +289,9 @@ export class ReadNext {
 
     const messages = [new SystemMessage(this.summarizationPrompt), new HumanMessage(pageContent)];
 
-    this.logger.info(`Generating summary for ${sourceDocument.id}`);
+    this.logger.info(`Generating summary for ${sourceDocument.id}`, { expensive: true, id: sourceDocument.id });
     const summary = await this.summaryChain.invoke(messages);
-    this.logger.info("Summarization completed");
+    this.logger.info("Summarization completed", { id: sourceDocument.id });
 
     return summary;
   }
@@ -302,7 +305,7 @@ export class ReadNext {
    * @returns {Promise<Suggestions>} A promise that resolves to an object containing the source document ID and an array of related document suggestions with their scores.
    */
   async suggest({ sourceDocument, limit = 10 }: Suggest): Promise<Suggestions> {
-    this.logger.info(`Getting suggestion for ${sourceDocument.id}`);
+    this.logger.info(`Getting suggestion for ${sourceDocument.id}`, { id: sourceDocument.id });
     const summary = await this.getSummaryFor({ sourceDocument });
     const results = await this.vectorStore.similaritySearchWithScore(summary, limit + 1);
 
@@ -347,103 +350,3 @@ type Suggestions = {
   id?: string;
   related: RelatedDocument[];
 };
-
-/**
- * The `ContentHasher` class is responsible for managing content hashes for documents.
- * It provides methods to check if a document's content is fresh, set new content hashes,
- * and load/save these hashes from/to a cache file.
- */
-class ContentHasher {
-  /**
-   * A map that stores document IDs and their corresponding content hashes.
-   */
-  records: Map<string, string>;
-
-  /**
-   * The path to the cache file where content hashes are stored.
-   */
-  cacheFile: string;
-
-  /**
-   * A logger instance for logging messages and errors.
-   */
-  logger: winston.Logger;
-
-  /**
-   * Constructs a new `ContentHasher` instance.
-   *
-   * @param cacheDir - The directory where the cache file is stored.
-   * @param logger - A logger instance for logging messages and errors.
-   */
-  constructor({ cacheDir, logger }: { cacheDir: string; logger: winston.Logger }) {
-    this.records = new Map();
-    this.logger = logger;
-
-    this.cacheFile = path.join(cacheDir, "contentHashes.json");
-    this.load();
-  }
-
-  /**
-   * Checks if the content of a given document is fresh by comparing its hash with the stored hash.
-   *
-   * @param document - The document to check.
-   * @returns `true` if the document's content is fresh, `false` otherwise.
-   */
-  hasFresh(document: DocumentInput): boolean {
-    const { pageContent, id } = document;
-
-    const contentSha = createHash("sha256").update(pageContent).digest("hex");
-
-    if (id) {
-      return this.records.get(id) === contentSha;
-    } else {
-      this.logger.warn("No id supplied, so caching will not work");
-      return false;
-    }
-  }
-
-  /**
-   * Sets the content hash for a given document.
-   *
-   * @param document - The document to set the hash for.
-   */
-  set(document: DocumentInput) {
-    const { pageContent, id } = document;
-
-    const contentSha = createHash("sha256").update(pageContent).digest("hex");
-
-    if (id) {
-      this.records.set(id, contentSha);
-    } else {
-      this.logger.warn("No id supplied, so caching will not work");
-    }
-  }
-
-  /**
-   * Loads the content hashes from the cache file.
-   *
-   * @returns `true` if the content hashes were successfully loaded, `false` otherwise.
-   */
-  load(): boolean {
-    try {
-      if (fs.existsSync(this.cacheFile)) {
-        const records = JSON.parse(fs.readFileSync(this.cacheFile, "utf-8"));
-        this.records = new Map(Object.entries(records));
-      }
-    } catch (e) {
-      this.logger.error("Error loading content hashes");
-      this.logger.error(e);
-
-      return false;
-    }
-
-    return true;
-  }
-
-  /**
-   * Saves the current content hashes to the cache file.
-   */
-  save(): void {
-    fs.writeFileSync(this.cacheFile, JSON.stringify(Object.fromEntries(this.records), null, 2));
-  }
-}

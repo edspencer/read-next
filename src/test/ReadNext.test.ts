@@ -107,6 +107,10 @@ describe("ReadNext", () => {
     });
   });
 
+  const logger = winston.createLogger({
+    silent: true,
+  });
+
   describe("indexing documents", () => {
     let engine: ReadNext;
     let summaryModel: BaseChatModel;
@@ -114,7 +118,6 @@ describe("ReadNext", () => {
     let embeddingsModel: FakeEmbeddings;
 
     const sourceDocument = { pageContent: "hello world", id: "1", metadata: {} };
-    const mockEmbedding = [0.1, 0.2, 0.3];
 
     beforeEach(async () => {
       summaryModel = new FakeChatModel({});
@@ -124,6 +127,7 @@ describe("ReadNext", () => {
       engine = await ReadNext.create({
         summaryModel,
         vectorStore,
+        logger,
       });
     });
 
@@ -215,6 +219,7 @@ describe("ReadNext", () => {
       engine = await ReadNext.create({
         summaryModel,
         vectorStore,
+        logger,
       });
 
       jest.spyOn(engine.contentHasher, "set");
