@@ -1,5 +1,11 @@
 # read-next
 
+## 0.3.0
+
+### Minor Changes
+
+- 56dee1d: Allow indexing to be run in parallel
+
 ## 0.2.0
 
 ### Minor Changes
