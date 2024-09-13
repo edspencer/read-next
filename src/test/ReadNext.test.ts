@@ -200,6 +200,35 @@ describe("ReadNext", () => {
 
       expect(saveSpy).toHaveBeenCalled();
     });
+
+    it("processes documents in parallel based on the parallelization factor", async () => {
+      const sourceDocuments = [
+        { pageContent: "doc 1", id: "1", metadata: {} },
+        { pageContent: "doc 2", id: "2", metadata: {} },
+        { pageContent: "doc 3", id: "3", metadata: {} },
+      ];
+
+      const getSummaryForSpy = jest.spyOn(engine, "getSummaryFor");
+
+      // Mock the getSummaryFor method to add a small delay
+      jest.spyOn(engine, "getSummaryFor").mockImplementation(async (doc) => {
+        await new Promise((resolve) => setTimeout(resolve, 10)); // Simulate async delay
+        return `summary for ${doc.sourceDocument.id}`;
+      });
+
+      const start = Date.now();
+
+      // Use parallel factor 3 to process all documents at once
+      await engine.index({ sourceDocuments, parallel: 3 });
+
+      const duration = Date.now() - start;
+
+      // Ensure that all getSummaryFor calls are made
+      expect(getSummaryForSpy).toHaveBeenCalledTimes(3);
+
+      // If processed in parallel, the total time should be close to the delay time (100ms)
+      expect(duration).toBeLessThan(20); // Should take less time than processing sequentially
+    });
   });
 
   describe("getSummaryFor", () => {

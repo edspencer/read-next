@@ -99,6 +99,32 @@ ReadNext performs all of this locally (aside from the calls to the LLMs), so you
 
 ## Configuration
 
+### Parallel
+
+If you are indexing lots of documents, it will be a lot faster if you run them in parallel. You can configure this when you create ReadNext:
+
+```tsx
+const readNext = await ReadNext.create({
+  cacheDir: "/my/cache/dir",
+  parallel: 10,
+});
+
+await readNext.index({ sourceDocuments: myHugeArrayOfDocuments });
+```
+
+This will kick off 10 indexing jobs at the same time, starting another one each time one finishes. This will result in 10 calls to your summaryModel LLM happening simultaneously, so be aware of rate limits here.
+
+You can also override it when you call `index`:
+
+```tsx
+await readNext.index({
+  sourceDocuments: myHugeArrayOfDocuments,
+  parallel: 5,
+});
+```
+
+Defaults to 1 (e.g. not parallel). It does make the grouped logging a little less pretty, but you can't win them all. It's a lot faster.
+
 ### Summary Model
 
 If you don't supply a model to perform summarization with, ReadNext will default to using OpenAI's `gpt-4o-mini`, because it's relatively fast and cheap. You will need to make sure that you have an `OPENAI_API_KEY` environment variable available for Langchain to use, otherwise it will give an error.

@@ -25,6 +25,7 @@ interface ReadNextArgs {
   summarizationPrompt?: string;
   cacheDir?: string;
   logger?: winston.Logger;
+  parallel?: number;
 }
 
 interface CreateReadNextArgs {
@@ -34,6 +35,7 @@ interface CreateReadNextArgs {
   summarizationPrompt?: string;
   cacheDir?: string;
   logger?: winston.Logger;
+  parallel?: number;
 }
 
 interface Summarize {
@@ -86,6 +88,7 @@ export class ReadNext {
   contentHasher: ContentHasher;
 
   logger: winston.Logger;
+  parallel: number;
 
   /**
    * Creates an instance of ReadNext with the provided configuration.
@@ -101,7 +104,7 @@ export class ReadNext {
    * @returns {Promise<ReadNext>} A promise that resolves to an instance of ReadNext.
    */
   static async create(config: CreateReadNextArgs = {}): Promise<ReadNext> {
-    let { logger, cacheDir, vectorStore, summarizationPrompt, summaryModel } = config;
+    let { logger, cacheDir, vectorStore, summarizationPrompt, summaryModel, parallel } = config;
 
     if (!config.embeddingsModel) {
       config.embeddingsModel = new OpenAIEmbeddings({ model: "text-embedding-ada-002" });
@@ -129,6 +132,7 @@ export class ReadNext {
       cacheDir,
       summarizationPrompt,
       logger,
+      parallel,
     };
 
     return new ReadNext(readNextConfig);
@@ -149,6 +153,7 @@ export class ReadNext {
     summarizationPrompt = defaultSummarizationPrompt,
     cacheDir,
     logger,
+    parallel = 1,
   }: ReadNextArgs) {
     this.vectorStore = vectorStore;
     this.summaryModel = summaryModel;
@@ -163,25 +168,27 @@ export class ReadNext {
     fs.mkdirSync(this.cacheDir, { recursive: true });
 
     this.logger = logger || readNextLogger;
+    this.parallel = parallel;
 
     this.contentHasher = new ContentHasher({ cacheDir: this.cacheDir, logger: this.logger });
   }
 
   /**
    * Indexes the provided source documents by generating summaries, adding them to a vector store,
-   * and saving the state to a cache.
+   * and saving the state to a cache. Supports parallel execution.
    *
    * @param {Object} params - The parameters for the index function.
    * @param {DocumentInput[]} params.sourceDocuments - An array of source documents to be indexed.
+   * @param {number} [params.parallel=1] - The number of documents to process in parallel. Uses a pooling mechanism.
    *
    * @returns {Promise<Document[]>} A promise that resolves to an array of summary documents.
    */
-  async index({ sourceDocuments }: { sourceDocuments: DocumentInput[] }) {
+  async index({ sourceDocuments, parallel }: { sourceDocuments: DocumentInput[]; parallel?: number }) {
     const summaryDocuments: Document[] = [];
     let embeddingsAdded = 0;
 
-    for (const sourceDocument of sourceDocuments) {
-      //create the summary
+    // Indexes a single document
+    const processDocument = async (sourceDocument: DocumentInput) => {
       const summary = await this.getSummaryFor({ sourceDocument });
 
       const summaryDocument: Document = {
@@ -191,26 +198,50 @@ export class ReadNext {
         },
       };
 
-      summaryDocuments.push(summaryDocument);
-
       this.logger.info(`Adding ${sourceDocument.id} to the vector store`, { id: sourceDocument.id });
       try {
         await this.vectorStore.delete({ ids: [sourceDocument.id] });
       } catch (e) {
-        // ignore errors here as we don't care if the document doesn't already exist
+        // ignore errors if the document doesn't already exist
       }
       await this.vectorStore.addDocuments([summaryDocument], { ids: [sourceDocument.id] });
-      embeddingsAdded += 1;
-
       this.logger.info(`${sourceDocument.id} added to the vector store`, { id: sourceDocument.id });
 
-      //save to the cache
+      // Save to cache
       this.contentHasher.set(sourceDocument);
       this.contentHasher.save();
-    }
+
+      return summaryDocument;
+    };
+
+    // Process documents in parallel, using a task pool
+    let index = 0; // Track the index of the current document
+
+    const processNext = async () => {
+      if (index >= sourceDocuments.length) {
+        return;
+      }
+
+      const currentDocument = sourceDocuments[index];
+      index++;
+      const summaryDocument = await processDocument(currentDocument);
+
+      summaryDocuments.push(summaryDocument);
+      embeddingsAdded += 1;
+
+      await processNext();
+    };
+
+    // Initialize the task pool with 'parallel' tasks
+    const tasks = Array(Math.min(parallel || this.parallel, sourceDocuments.length))
+      .fill(null)
+      .map(() => processNext());
+
+    // Wait for all tasks to complete
+    await Promise.all(tasks);
 
     if (embeddingsAdded > 0) {
-      //The store throws an error if .addDocuments is never called, so we only save if we have added documents
+      // Save vector store if new embeddings were added
       try {
         // @ts-ignore
         if (typeof this.vectorStore.save === "function") {
@@ -218,8 +249,7 @@ export class ReadNext {
           await this.vectorStore.save(this.cacheDir);
         }
       } catch (e) {
-        console.error("Error saving vector store");
-        console.error(e);
+        this.logger.error("Error saving vector store", { error: e });
       }
     }
 
@@ -301,10 +331,10 @@ export class ReadNext {
    *
    * @param {Object} params - The parameters for the suggestion.
    * @param {Object} params.sourceDocument - The source document to base suggestions on.
-   * @param {number} [params.limit=10] - The maximum number of suggestions to return.
+   * @param {number} [params.limit=1] - The maximum number of suggestions to return.
    * @returns {Promise<Suggestions>} A promise that resolves to an object containing the source document ID and an array of related document suggestions with their scores.
    */
-  async suggest({ sourceDocument, limit = 10 }: Suggest): Promise<Suggestions> {
+  async suggest({ sourceDocument, limit = 1 }: Suggest): Promise<Suggestions> {
     this.logger.info(`Getting suggestion for ${sourceDocument.id}`, { id: sourceDocument.id });
     const summary = await this.getSummaryFor({ sourceDocument });
     const results = await this.vectorStore.similaritySearchWithScore(summary, limit + 1);
