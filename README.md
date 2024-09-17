@@ -13,6 +13,12 @@ It's not a UI component itself, but powers "What to Read Next" UI components lik
 
 ![Example UI using Read Next](/docs/read-next-ui-example.png)
 
+## 3 minute intro video
+
+Click this image to watch a [~3 minute intro video on using ReadNext with React](https://www.youtube.com/watch?v=U0EqgFSAvj4):
+
+[![3 minute ReadNext video](https://img.youtube.com/vi/U0EqgFSAvj4/maxresdefault.jpg)](https://www.youtube.com/watch?v=U0EqgFSAvj4)
+
 ## Installation
 
 Install the NPM package:
