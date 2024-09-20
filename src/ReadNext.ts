@@ -22,31 +22,49 @@ import ContentHasher from "./ContentHasher";
 interface ReadNextArgs {
   vectorStore: VectorStore;
   summaryModel: BaseChatModel;
-  summarizationPrompt?: string;
+  summarizationPrompt?: SummarizationPrompt;
   cacheDir?: string;
   logger?: winston.Logger;
   parallel?: number;
+  getSourceDocument?: (doc: any) => DocumentInput;
+  sourceDocuments?: any[];
 }
 
 interface CreateReadNextArgs {
   vectorStore?: VectorStore;
   embeddingsModel?: Embeddings;
   summaryModel?: BaseChatModel;
-  summarizationPrompt?: string;
+  summarizationPrompt?: SummarizationPrompt;
   cacheDir?: string;
   logger?: winston.Logger;
   parallel?: number;
+  getSourceDocument?: (doc: any) => DocumentInput;
+  sourceDocuments?: any[];
 }
 
 interface Summarize {
   sourceDocument: DocumentInput;
   saveSummary?: boolean;
+  summarizationPrompt?: SummarizationPrompt;
 }
 
 interface Suggest {
-  sourceDocument: DocumentInput;
+  sourceDocument: DocumentInput | any;
   limit?: number;
   ignore?: Document[];
+}
+
+type SummarizationPrompt = string | ((doc: DocumentInput) => string);
+
+interface GetSummaryArgs {
+  sourceDocument: DocumentInput;
+  summarizationPrompt?: SummarizationPrompt;
+}
+
+interface IndexArgs {
+  sourceDocuments: DocumentInput[];
+  parallel?: number;
+  summarizationPrompt?: SummarizationPrompt;
 }
 
 export const defaultSummarizationPrompt = `Here is an article for you to summarize.
@@ -77,7 +95,7 @@ export const defaultSummarizationPrompt = `Here is an article for you to summari
 export class ReadNext {
   summaryModel: BaseChatModel;
   embeddingsModel: EmbeddingsInterface;
-  summarizationPrompt: string;
+  summarizationPrompt: SummarizationPrompt;
   vectorStore: VectorStore;
 
   summaryParser: StringOutputParser;
@@ -89,6 +107,8 @@ export class ReadNext {
 
   logger: winston.Logger;
   parallel: number;
+  getSourceDocument: (doc: any) => DocumentInput = (doc) => doc;
+  sourceDocuments: any[];
 
   /**
    * Creates an instance of ReadNext with the provided configuration.
@@ -104,7 +124,7 @@ export class ReadNext {
    * @returns {Promise<ReadNext>} A promise that resolves to an instance of ReadNext.
    */
   static async create(config: CreateReadNextArgs = {}): Promise<ReadNext> {
-    let { logger, cacheDir, vectorStore, summarizationPrompt, summaryModel, parallel } = config;
+    let { logger, cacheDir, vectorStore, summarizationPrompt, summaryModel, parallel, getSourceDocument } = config;
 
     if (!config.embeddingsModel) {
       config.embeddingsModel = new OpenAIEmbeddings({ model: "text-embedding-ada-002" });
@@ -123,7 +143,7 @@ export class ReadNext {
     }
 
     if (!summaryModel) {
-      summaryModel = new ChatOpenAI({ model: "gpt-4o-mini", temperature: 0 });
+      summaryModel = new ChatOpenAI({ model: "gpt-4o-mini", temperature: 0.7 });
     }
 
     const readNextConfig: ReadNextArgs = {
@@ -133,6 +153,7 @@ export class ReadNext {
       summarizationPrompt,
       logger,
       parallel,
+      getSourceDocument,
     };
 
     return new ReadNext(readNextConfig);
@@ -154,6 +175,8 @@ export class ReadNext {
     cacheDir,
     logger,
     parallel = 1,
+    getSourceDocument,
+    sourceDocuments,
   }: ReadNextArgs) {
     this.vectorStore = vectorStore;
     this.summaryModel = summaryModel;
@@ -170,6 +193,11 @@ export class ReadNext {
     this.logger = logger || readNextLogger;
     this.parallel = parallel;
 
+    if (typeof getSourceDocument === "function") {
+      this.getSourceDocument = getSourceDocument; // || ((doc: any) => doc);
+    }
+    this.sourceDocuments = sourceDocuments || [];
+
     this.contentHasher = new ContentHasher({ cacheDir: this.cacheDir, logger: this.logger });
   }
 
@@ -180,16 +208,26 @@ export class ReadNext {
    * @param {Object} params - The parameters for the index function.
    * @param {DocumentInput[]} params.sourceDocuments - An array of source documents to be indexed.
    * @param {number} [params.parallel=1] - The number of documents to process in parallel. Uses a pooling mechanism.
+   * @param {string|Function} [params.summarizationPrompt] - Optional override to default summarizationPrompt
    *
    * @returns {Promise<Document[]>} A promise that resolves to an array of summary documents.
    */
-  async index({ sourceDocuments, parallel }: { sourceDocuments: DocumentInput[]; parallel?: number }) {
+  async index({
+    sourceDocuments = this.sourceDocuments,
+    parallel,
+    summarizationPrompt,
+  }: {
+    sourceDocuments?: DocumentInput[];
+    parallel?: number;
+    summarizationPrompt?: string | ((doc: DocumentInput) => string);
+  }) {
     const summaryDocuments: Document[] = [];
     let embeddingsAdded = 0;
 
     // Indexes a single document
-    const processDocument = async (sourceDocument: DocumentInput) => {
-      const summary = await this.getSummaryFor({ sourceDocument });
+    const processDocument = async (doc: DocumentInput) => {
+      const sourceDocument = this.getSourceDocument(doc);
+      const summary = await this.getSummaryFor({ sourceDocument: doc, summarizationPrompt });
 
       const summaryDocument: Document = {
         pageContent: summary,
@@ -262,12 +300,14 @@ export class ReadNext {
    * it generates a new summary and caches it if the document has an ID. The content hash is updated
    * and saved if it is not fresh.
    *
-   * @param {Object} param0 - The input object containing the source document.
-   * @param {DocumentInput} param0.sourceDocument - The document for which to generate a summary.
+   * @param {Object} options - The input object containing the source document.
+   * @param {DocumentInput} options.sourceDocument - The document for which to generate a summary.
    * @returns {Promise<string>} - A promise that resolves to the summary of the document.
    */
-  async getSummaryFor({ sourceDocument }: { sourceDocument: DocumentInput }) {
+  async getSummaryFor({ sourceDocument, summarizationPrompt }: GetSummaryArgs): Promise<string> {
     let summary: string | undefined = undefined;
+    sourceDocument = this.getSourceDocument(sourceDocument);
+
     const hasId = sourceDocument.id;
     const hasFresh = this.contentHasher.hasFresh(sourceDocument);
 
@@ -283,7 +323,7 @@ export class ReadNext {
         }
       }
     } else {
-      console.warn("No id found for document, summary will not be cached");
+      this.logger.warn("No id found for document, summary will not be cached");
     }
 
     if (summary === undefined) {
@@ -291,7 +331,7 @@ export class ReadNext {
         cache: "miss",
         id: sourceDocument.id,
       });
-      summary = await this.summarize({ sourceDocument });
+      summary = await this.summarize({ sourceDocument, summarizationPrompt });
     } else {
       this.logger.info(`Using cached summary for ${sourceDocument.id}`, { cache: "hit", id: sourceDocument.id });
     }
@@ -314,14 +354,50 @@ export class ReadNext {
    * Summarizes a source document, saving it to the cacheDir.
    * @returns the summary of the source document
    */
-  async summarize({ sourceDocument }: Summarize): Promise<string> {
+  async summarize({ sourceDocument, summarizationPrompt = this.summarizationPrompt }: Summarize): Promise<string> {
     const { pageContent } = sourceDocument;
 
-    const messages = [new SystemMessage(this.summarizationPrompt), new HumanMessage(pageContent)];
+    const messages = [
+      new SystemMessage(
+        typeof summarizationPrompt === "string" ? summarizationPrompt : summarizationPrompt(sourceDocument)
+      ),
+      new HumanMessage(pageContent),
+    ];
 
     this.logger.info(`Generating summary for ${sourceDocument.id}`, { expensive: true, id: sourceDocument.id });
     const summary = await this.summaryChain.invoke(messages);
     this.logger.info("Summarization completed", { id: sourceDocument.id });
+
+    return summary;
+  }
+
+  async prompt({
+    sourceDocuments = this.sourceDocuments,
+    prompt,
+    docId,
+  }: {
+    sourceDocuments?: any[];
+    prompt: any;
+    docId?: string;
+  }) {
+    //make sure the source documents are all indexed
+    await this.index({ sourceDocuments });
+
+    //get the summaries for these posts
+    const summaries = await Promise.all(
+      sourceDocuments.map(async (sourceDocument, index) => this.getSummaryFor({ sourceDocument }))
+    );
+
+    const message =
+      typeof prompt === "string" ? prompt : prompt(sourceDocuments?.map(this.getSourceDocument), summaries);
+
+    this.logger.info("invoking prompt");
+    const summary = await this.summarize({
+      sourceDocument: { pageContent: message, id: docId },
+      summarizationPrompt: message,
+    });
+
+    this.logger.info("prompt response received");
 
     return summary;
   }

@@ -206,6 +206,12 @@ describe("ReadNext", () => {
         { pageContent: "doc 1", id: "1", metadata: {} },
         { pageContent: "doc 2", id: "2", metadata: {} },
         { pageContent: "doc 3", id: "3", metadata: {} },
+        { pageContent: "doc 4", id: "4", metadata: {} },
+        { pageContent: "doc 5", id: "5", metadata: {} },
+        { pageContent: "doc 6", id: "6", metadata: {} },
+        { pageContent: "doc 7", id: "7", metadata: {} },
+        { pageContent: "doc 8", id: "8", metadata: {} },
+        { pageContent: "doc 9", id: "9", metadata: {} },
       ];
 
       const getSummaryForSpy = jest.spyOn(engine, "getSummaryFor");
@@ -218,17 +224,20 @@ describe("ReadNext", () => {
 
       const start = Date.now();
 
-      // Use parallel factor 3 to process all documents at once
-      await engine.index({ sourceDocuments, parallel: 3 });
+      await engine.index({ sourceDocuments, parallel: 5 });
 
       const duration = Date.now() - start;
 
       // Ensure that all getSummaryFor calls are made
-      expect(getSummaryForSpy).toHaveBeenCalledTimes(3);
+      expect(getSummaryForSpy).toHaveBeenCalledTimes(9);
 
-      // If processed in parallel, the total time should be close to the delay time (100ms)
-      expect(duration).toBeLessThan(20); // Should take less time than processing sequentially
+      expect(duration).toBeLessThan(80); // would be 90ms to process sequentially
     });
+
+    it.todo("accepts a getSourceDocument function to transform source documents before summarization");
+    it.todo("accepts a summarizationPrompt function to customize the summarization prompt");
+
+    it.todo("allows sourceDocuments to be passed in the constructor");
   });
 
   describe("getSummaryFor", () => {
