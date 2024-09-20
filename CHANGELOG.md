@@ -1,5 +1,14 @@
 # read-next
 
+## 0.4.0
+
+### Minor Changes
+
+- b5d81d9: [Experimental] Added initial meta-content generation via .prompt(). API will likely change
+- b5d81d9: Allows passing in sourceDocuments at read-next creation time or generation time
+- b5d81d9: Allow passing summarizationPrompt directly as an argument to index()
+- b5d81d9: Added getSourceDocument callback
+
 ## 0.3.0
 
 ### Minor Changes
