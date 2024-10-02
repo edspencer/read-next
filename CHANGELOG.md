@@ -1,5 +1,11 @@
 # read-next
 
+## 0.5.0
+
+### Minor Changes
+
+- 9d8cbb4: Added getSummaryById
+
 ## 0.4.0
 
 ### Minor Changes
