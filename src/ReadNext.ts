@@ -52,6 +52,7 @@ interface Suggest {
   sourceDocument: DocumentInput | any;
   limit?: number;
   ignore?: Document[];
+  includeSummary?: boolean;
 }
 
 type SummarizationPrompt = string | ((doc: DocumentInput) => string);
@@ -65,6 +66,12 @@ interface IndexArgs {
   sourceDocuments: DocumentInput[];
   parallel?: number;
   summarizationPrompt?: SummarizationPrompt;
+}
+
+export interface PromptArgs {
+  sourceDocuments?: any[];
+  prompt: any;
+  docId?: string;
 }
 
 export const defaultSummarizationPrompt = `Here is an article for you to summarize.
@@ -143,7 +150,7 @@ export class ReadNext {
     }
 
     if (!summaryModel) {
-      summaryModel = new ChatOpenAI({ model: "gpt-4o-mini", temperature: 0.7 });
+      summaryModel = new ChatOpenAI({ model: "gpt-4o", temperature: 0.7 });
     }
 
     const readNextConfig: ReadNextArgs = {
@@ -199,6 +206,20 @@ export class ReadNext {
     this.sourceDocuments = sourceDocuments || [];
 
     this.contentHasher = new ContentHasher({ cacheDir: this.cacheDir, logger: this.logger });
+  }
+
+  /**
+   * Retrieves the summary content by its identifier.
+   *
+   * @param id - The unique identifier of the summary.
+   * @returns The content of the summary as a string if it exists, otherwise undefined.
+   */
+  getSummaryById(id: string) {
+    const summaryFileName = path.join(this.cacheDir, "summaries", id);
+
+    if (fs.existsSync(summaryFileName)) {
+      return fs.readFileSync(summaryFileName, "utf8");
+    }
   }
 
   /**
@@ -371,21 +392,13 @@ export class ReadNext {
     return summary;
   }
 
-  async prompt({
-    sourceDocuments = this.sourceDocuments,
-    prompt,
-    docId,
-  }: {
-    sourceDocuments?: any[];
-    prompt: any;
-    docId?: string;
-  }) {
+  async prompt({ sourceDocuments = this.sourceDocuments, prompt, docId }: PromptArgs) {
     //make sure the source documents are all indexed
     await this.index({ sourceDocuments });
 
     //get the summaries for these posts
     const summaries = await Promise.all(
-      sourceDocuments.map(async (sourceDocument, index) => this.getSummaryFor({ sourceDocument }))
+      sourceDocuments.map(async (sourceDocument) => this.getSummaryFor({ sourceDocument }))
     );
 
     const message =
@@ -417,14 +430,7 @@ export class ReadNext {
 
     const related = results
       .filter(([doc]) => doc.metadata.sourceDocumentId !== sourceDocument.id)
-      .map(
-        ([
-          {
-            metadata: { sourceDocumentId },
-          },
-          score,
-        ]) => ({ sourceDocumentId, score })
-      );
+      .map(([{ metadata }, score]) => ({ sourceDocumentId: metadata.sourceDocumentId, score, metadata }));
 
     return {
       id: sourceDocument.id,
@@ -443,6 +449,7 @@ export class ReadNext {
 type RelatedDocument = {
   sourceDocumentId: string;
   score: number;
+  metadata: any;
 };
 
 /**
