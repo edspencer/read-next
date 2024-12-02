@@ -2,21 +2,29 @@
   "name": "read-next",
   "version": "0.5.0",
   "description": "",
-  "main": "dist/index.js",
+  "main": "./dist/index.cjs.js",
+  "module": "./dist/index.js",
+  "types": "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs.js"
+    }
+  },
+  "files": [
+    "/dist/**/*"
+  ],
   "scripts": {
     "test": "npx jest",
     "build": "tsc && rollup -c",
     "build:watch": "concurrently \"tsc --watch\" \"rollup -c --watch\"",
     "ci:version": "changeset version",
     "ci:publish": "tsc && rollup -c && changeset publish",
-    "check-exports": "attw --pack ."
+    "check-exports": "attw --pack  . --ignore-rules=cjs-resolves-to-esm"
   },
   "keywords": [
     "ai",
     "react"
-  ],
-  "files": [
-    "/dist"
   ],
   "repository": {
     "type": "git",
@@ -47,5 +55,6 @@
     "faiss-node": "^0.5.1",
     "langchain": "^0.2.18",
     "winston": "^3.14.2"
-  }
+  },
+  "packageManager": "pnpm@9.5.0+sha1.8c155dc114e1689d18937974f6571e0ceee66f1d"
 }
