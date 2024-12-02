@@ -55,6 +55,5 @@
     "faiss-node": "^0.5.1",
     "langchain": "^0.2.18",
     "winston": "^3.14.2"
-  },
-  "packageManager": "pnpm@9.5.0+sha1.8c155dc114e1689d18937974f6571e0ceee66f1d"
+  }
 }
