@@ -1,5 +1,11 @@
 # read-next
 
+## 0.5.1
+
+### Patch Changes
+
+- d4db991: Fix build output for CJS
+
 ## 0.5.0
 
 ### Minor Changes
