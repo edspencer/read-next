@@ -14,9 +14,7 @@
     "declarationDir": "./dist/types",
     "moduleResolution": "node",
     "moduleDetection": "force",
-    "verbatimModuleSyntax": true,
-    "isolatedModules": true,
-    "allowJs": true
+    "isolatedModules": true
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
